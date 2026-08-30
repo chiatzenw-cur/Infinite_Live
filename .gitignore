@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+
+# ---- secrets: never commit -------------------------------------------------
+.env
+.env.local
+.env.*.local
+*.api_key
+# TLS material (mediamtx auto-generates an EC private key into tools/)
+*.key
+*.pem
+*.crt
+*.p12
+
+# ---- vendored third-party binaries ----------------------------------------
+# mediamtx.exe + zip are ~83MB and are a separate project with its own licence;
+# download it rather than committing it.
+tools/
+
+# ---- runtime output --------------------------------------------------------
+# generated clips, interstitials, title cards, debug overlays, demo renders
+# (git cannot re-include a child of an excluded directory, so published key art
+# lives in docs/img/ instead of being negated back out of here)
+assets/
+
+# ---- private working notes -------------------------------------------------
+# The handoff log is a raw engineering diary: it contains a LAN IP, the bilibili
+# room ID, a provider account number, and every dead end in detail. Useful
+# privately, not something to publish.
+progress_so_far.md
+*.local.md
+notes/
+
+# ---- logs / journals -------------------------------------------------------
+*.log
+bridge.log
+publisher_stderr.log
+# append-only record of audience comments -> prompts: contains viewer text
+journal.jsonl
+*.jsonl
+
+# ---- media ------------------------------------------------------------------
+*.mp4
+*.mov
+*.mkv
+*.flv
+*.h264
+*.ts
+# key art is the exception (see assets/opening above)
+*.png
+!docs/img/*.png
+
+# ---- OS / editor -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+node_modules/
+dist/
