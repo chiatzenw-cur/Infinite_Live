@@ -151,6 +151,27 @@ MAX_CAST_IN_SHOT = 2                # keep shots readable; <=2 per shot helps co
 # model must hold consistent, so new cast must also carry >=3 strong identifiers.
 MAX_TOTAL_CAST = 8
 
+# SHOT GRAMMAR. Every prompt used to end with the identical "one smooth continuous camera
+# move" and never named a framing, so the model fell back to its default composition:
+# a medium shot with the subject WALKING INTO THE CENTRE of frame. Every clip then opened
+# the same way and the cuts between them read as a loop rather than as coverage.
+# Naming a shot size per beat, and holding the camera still by default, fixes both.
+SHOTS: dict[str, str] = {
+    "wide": ("wide shot, full figures small in the frame, lots of the location visible, "
+             "camera locked off and still"),
+    "medium": ("medium shot, subject from the waist up, camera locked off and still"),
+    "close": ("close-up on the face, filling much of the frame, shallow depth, "
+              "camera locked off and still"),
+    "insert": ("extreme close-up detail shot of the object or the hands only, "
+               "no faces in frame, camera locked off and still"),
+    "over_shoulder": ("over-the-shoulder shot, the near character's shoulder large and "
+                      "out of focus in the foreground, camera locked off and still"),
+    "low": ("low angle looking up at the subject, camera locked off and still"),
+    "high": ("high angle looking down on the subject, camera locked off and still"),
+    "push": ("medium shot, camera pushing in very slowly and steadily"),
+}
+DEFAULT_SHOT = "medium"
+
 MOODS = {
     "default": "calm, storybook, gentle wonder",
     "excited": "quickening, adventurous, on the move",
@@ -191,6 +212,8 @@ class Story:
         self._recent_cards: list[str] = []       # shown to the director so it
                                                  # does not reword an old card
         self._rule_i = 0                         # rotates the fallback beats
+        self.last_shot = ""                      # previous framing; never repeat
+        self._shot_i = 0                         # rotation cursor for framings
         self._since_card = 0                     # shots in a row; TOLD to the
                                                  # director so it can judge cadence
         self.changed = ""                        # director's own answer to
@@ -309,6 +332,23 @@ class Story:
         self.cast_names = list(self.cast)
         print(f"[story] AUDIENCE ADDED CAST: {name} -- {desc[:70]}")
 
+    def _resolve_shot(self, requested: str) -> str:
+        """Pick the framing, and never allow the same one twice in a row.
+
+        The generator's default composition is a medium shot with the subject walking to
+        centre frame. When every beat used that, consecutive clips opened identically and
+        the joins looked like a loop instead of coverage."""
+        shot = (requested or "").strip().lower()
+        if shot not in SHOTS:
+            shot = ""
+        if not shot or shot == self.last_shot:
+            # rotate to the next distinct framing rather than repeat
+            order = [k for k in SHOTS if k != self.last_shot]
+            shot = order[self._shot_i % len(order)]
+            self._shot_i += 1
+        self.last_shot = shot
+        return shot
+
     def _resolve_setting(self, requested: str) -> None:
         """The director may MOVE between bible settings, but never invent one."""
         key = (requested or "").strip().lower()
@@ -333,11 +373,19 @@ class Story:
                    f"camera position and angle. Never change the environment -- only the "
                    f"people and their action may change.")
 
-    def _render_prompt(self, chars: list[tuple[str, str]], action: str) -> str:
+    def _render_prompt(self, chars: list[tuple[str, str]], action: str,
+                       shot: str = DEFAULT_SHOT) -> str:
         names = " and ".join(n for n, _ in chars)
         descs = "; ".join(d for _, d in chars)
+        framing = SHOTS.get(shot, SHOTS[DEFAULT_SHOT])
         return (f"{self.style}. {self.bg} {descs}. {names}: {action}. "
-                f"Mood: {self.mood}. One smooth continuous camera move, no cuts, no text.")
+                f"Mood: {self.mood}. {framing}. "
+                # the model's default is to walk the subject into the middle of frame,
+                # which made every clip open identically; negate it explicitly.
+                f"The subject is ALREADY in frame and in position when the shot begins. "
+                f"Nobody walks into frame, nobody enters or exits frame, "
+                f"no one is centred and approaching the camera. "
+                f"No cuts, no text.")
 
     # Fallback beats used when the director times out. It MUST vary: with a quiet room
     # the old single-string version aired the identical line four times in a row during a
@@ -447,7 +495,8 @@ class Story:
         if not action:
             action = self._rule_action(signal)
 
-        prompt = self._render_prompt(chars, action)
+        shot = self._resolve_shot(d.get("shot", "") if isinstance(d, dict) else "")
+        prompt = self._render_prompt(chars, action, shot)
         ok, _ = self.censor.sanitize_prompt(prompt)
         if not ok:
             prompt = self._render_prompt(chars, self.censor.safe_action())
@@ -570,6 +619,12 @@ class Story:
             '  "beat_type": "card" when needs_card is sound/time/place, "shot" for '
             'speech and none. Speech is ALWAYS a shot with a subtitle, never a card. '
             "Never two cards in a row.\n"
+            '  "shot": REQUIRED. How this beat is framed. One of: wide, medium, close, '
+            'insert, over_shoulder, low, high, push. VARY IT from the previous shot below '
+            '-- real coverage alternates (wide to establish, then close for a reaction, '
+            'then insert on the object that matters). Repeating one framing for beats on '
+            'end is what makes independent clips look like a loop. Use `insert` when the '
+            'beat turns on an object, `close` when it turns on a face.\n'
             '  "action": the shot when beat_type=shot. ONE action, ONE clause, AT MOST '
             "16 words, fits in five seconds, and CHANGES something. Write it in ENGLISH. "
             "When this is a speech beat, describe the character's visible gesture as they "
@@ -701,6 +756,7 @@ class Story:
                 return {
                     "setting": str(obj.get("setting", "")).strip(),
                     "characters": chars if isinstance(chars, list) else [],
+                    "shot": str(obj.get("shot", "")).strip().lower(),
                     "action": str(obj.get("action", "")).strip(),
                     "card": str(obj.get("card", "")).strip(),
                     "needs_card": str(obj.get("needs_card", "none")).strip().lower(),
